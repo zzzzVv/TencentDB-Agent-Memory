@@ -37,7 +37,7 @@ done
 
 ERRORS=0
 WARNS=0
-CURL=/usr/bin/curl
+# CURL 由 _lib.sh 统一解析（兼容 macOS Homebrew 与 Windows Git Bash 的 /mingw64/bin/curl）
 
 # ─── LLM 通路检查函数 ───────────────────────────────────────────────
 # check_llm_openai <label> <base_url> <api_key> <model>

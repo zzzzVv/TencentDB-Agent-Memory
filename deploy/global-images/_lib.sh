@@ -77,6 +77,22 @@ find_docker() {
 
 DOCKER="$(find_docker)"
 
+# ── Git Bash / MSYS2：docker 挂载的路径转换陷阱 ──────────────────────────
+# MSYS 会把 `-v host:/container:mode` 当成「路径列表」：既在两个 `:` 处拆开，又把
+# 容器侧路径按 Git 安装根目录改写（/data/config.yaml → D:\soft\developer\Git\data\
+# config.yaml），分隔符还会变成 `;`。宿主机上甚至会留下叫 `config.yaml;D` 的垃圾目录。
+# 后果是 bind mount 静默落空，容器读不到配置、回退到内置 DEFAULT_CONFIG（上游变成
+# 占位符 https://llm-upstream.example.com，auth / sessionInit / injection 全禁用）。
+# 换成 `--mount type=bind,source=...,target=/data/...` 语法同样会被改写，换语法没用。
+#
+# 对策：**只对 docker 调用**关闭路径转换。不能全局 export —— 本目录脚本用的 curl 是
+# 原生 Windows 程序（/mingw64/bin/curl，PE32+），关掉转换后它无法解析 `-o /tmp/...`
+# 这类 Unix 路径，会先写出状态码再因建不了文件而退出非 0，被 `|| echo "000"` 拼成
+# 误导性的 HTTP=200000。
+#
+# 用法：凡带 bind mount（-v /host:/container）的 docker 调用都改用它。
+docker_mount() { MSYS_NO_PATHCONV=1 "$DOCKER" "$@"; }
+
 # PULL=1 时拉取镜像最新版本。
 # 默认关闭：docker run 在本地没有镜像时会自动拉，但本地已有同名 :latest 时会直接复用，
 # 不会感知远端更新——想升级到最新 latest 就带 PULL=1。

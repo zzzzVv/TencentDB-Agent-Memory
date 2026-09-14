@@ -36,25 +36,35 @@ MEMORY_CORE_GATEWAY_API_KEY="${MEMORY_CORE_GATEWAY_API_KEY:-local}"
 # 显式设了 MEMORY_HUB_PROXY_PUBLIC_URL 环境变量则完全按你给的值来。
 # 显式设为空字符串则 Panel 前端回落到 gateway_endpoint（老行为）。
 # Panel 后端 → Kernel 的转发地址始终走 REMOTE_INSTANCE_URL，不受此变量影响。
+# 校验探测结果是否为合法 IPv4。
+# 必要性：命令不可用时可能把「用法/报错文本」打到 stdout（Windows 的 ipconfig.exe
+# 就是典型），不校验的话整段文本会被当成 IP 拼进 URL，导致 docker run 参数解析失败。
+is_ipv4() {
+  [[ "$1" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]
+}
+
 detect_host_ip() {
   local ip=""
   # Linux
   if command -v hostname >/dev/null 2>&1; then
     ip=$(hostname -I 2>/dev/null | tr ' ' '\n' | awk '/^[0-9]+\./ && $0 !~ /^127\./ && $0 !~ /^169\.254\./' | head -n1)
-    [[ -n "$ip" ]] && { echo "$ip"; return; }
+    is_ipv4 "$ip" && { echo "$ip"; return; }
   fi
-  # macOS
-  if command -v ipconfig >/dev/null 2>&1; then
+  # macOS —— 必须限定 Darwin：Windows 也有 ipconfig.exe，但语法完全不同（没有
+  # getifaddr 子命令），它会把用法说明整段打到 stdout，被误当成 IP。
+  if [[ "$(uname -s)" == "Darwin" ]] && command -v ipconfig >/dev/null 2>&1; then
     for iface in en0 en1 en2; do
       ip=$(ipconfig getifaddr "$iface" 2>/dev/null)
-      [[ -n "$ip" ]] && { echo "$ip"; return; }
+      is_ipv4 "$ip" && { echo "$ip"; return; }
     done
   fi
   # 兜底：ip route（Linux 无 hostname -I 时）
   if command -v ip >/dev/null 2>&1; then
     ip=$(ip -4 route get 1 2>/dev/null | awk '/src/ {for (i=1;i<=NF;i++) if ($i=="src") print $(i+1); exit}')
-    [[ -n "$ip" ]] && { echo "$ip"; return; }
+    is_ipv4 "$ip" && { echo "$ip"; return; }
   fi
+  # 都没探测到（含 Windows/Docker Desktop）：回落到 localhost —— Panel 前端与
+  # 浏览器同机，直接走宿主机已发布端口即可。
   echo "localhost"
 }
 
